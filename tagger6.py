@@ -80,7 +80,7 @@ def evaluate_model(model, loader, criterion):
     return total_loss / len(loader.dataset)
 
 # ---------------- Sampling ----------------
-def sample(model, char2idx, idx2char, prefix, num_chars, k):
+def emphsample(model, char2idx, idx2char, prefix, num_chars, k):
     model.eval()
     result = list(prefix)
     context = [char2idx.get(c, 0) for c in prefix.lower()][-k:]
@@ -130,8 +130,8 @@ if __name__ == "__main__":
         losses.append(val_loss)
         print(f"Epoch {epoch}: Train Loss = {train_loss:.4f} | Val Loss = {val_loss:.4f}")
         # Sample every few epochs
-        gen = sample(model, char2idx, idx2char, prefix="The ", num_chars=100, k=k)
-        with open(f"{SAMPLES_DIR}/sample_k{k}_ep{epoch}.txt", "w", encoding="utf-8") as f:
+        gen = emphsample(model, char2idx, idx2char, prefix="", num_chars=100, k=k)
+        with open(f"{SAMPLES_DIR}/sample_k{k}_ep{epoch}_without_prefix.txt", "w", encoding="utf-8") as f:
             f.write(gen)
 
     # Save final plot
@@ -139,5 +139,7 @@ if __name__ == "__main__":
     plt.xlabel("Epoch")
     plt.ylabel("Validation Loss")
     plt.title(f"Char LM (k={k})")
-    plt.savefig(f"{FIG_DIR}/part6_k{k}_loss.png")
+    #plt.savefig(f"{FIG_DIR}/part6_k{k}_loss.png")
+    plt.savefig(f"{FIG_DIR}/part6_k{k}_loss_without_prefix.png")
+
     print(f"Saved loss plot and samples for k={k}")
