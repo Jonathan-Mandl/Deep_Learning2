@@ -157,3 +157,40 @@ Test predictions are writtten to:
 Determinism
 -----------
 Same as part 1
+
+Part 6: Character-level N-gram Language Model
+---------------------------------------------
+
+Description
+-----------
+This part implements a character-level language model using an n-gram context window of length `k`.
+Given `k` characters, the model predicts the next character in sequence.
+It can be trained on English (`eng.txt`) or Hebrew (`heb.tgz`) corpora and supports sampling of generated text.
+
+Directory structure
+-------------------
+.
+|-- tagger6.py
+|-- lm-data/eng-data/input.txt
+|-- lm-data/heb-data/*.txt
+|-- figures/           # loss graphs
+|-- samples/           # sampled texts during training
+
+Arguments
+---------
+--corpus PATH    Path to text file to train on
+--k INT          Length of character context (default 10)
+
+Usage
+-----
+Train a character-level LM with k=10:
+  python tagger6.py --corpus lm-data/eng-data/input.txt --k 10
+
+Outputs
+-------
+- Figures showing validation loss saved in `figures/part6_k10_loss.png`
+- Sampled texts of 100 characters after each epoch saved in `samples/sample_k10_ep*.txt`
+
+Determinism
+-----------
+Random seed 42 set for Python and PyTorch.
