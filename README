@@ -1,0 +1,159 @@
+README
+======
+
+Part 1: Random Embeddings
+-------------------------
+
+Description
+-----------
+In this part, we train a window-based tagger for POS and NER using random embeddings.  
+It reads data from `<task>/train`, evaluates on `<task>/dev`, and (optionally) predicts on `<task>/test`.
+
+Directory structure
+-------------------
+.
+|-- tagger1.py  
+|-- pos/  
+|   |-- train  
+|   |-- dev  
+|   `-- test  
+`-- ner/  
+    |-- train  
+    |-- dev  
+    `-- test  
+
+Arguments
+---------
+--task pos|ner        Task to run (“pos” or “ner”)  
+--part NAME           Identifier for output filenames (e.g. “1”)  
+[--output_test PATH]  Write test-set predictions to PATH (optional)  
+
+Usage
+-----
+Train & evaluate on dev set:
+  python tagger1.py --task pos --part 1
+
+Generate test-set predictions:
+  python tagger1.py --task pos --part 1 \
+    --output_test pos_test.txt
+
+Outputs
+-------
+Graphs for validation set accuracy and loss are created and saved in figures/ dir
+Test predictions are writtten to:
+  <output_test> (if specified)  
+
+Determinism
+-----------
+Fixed seed (42) for Python, NumPy, and PyTorch;  
+cuDNN deterministic flags enabled.  
+
+Part 3: Pretrained Embeddings
+------------------------------
+
+Description
+-----------
+In this part, we extend the same tagger (tagger1.py) to use pretrained embeddings from `embeddings/vocab.txt` and `embeddings/wordVectors.txt`.  
+Training and evaluation follow the same pattern as Part 1 but with a different number of epochs as convergence is faster.
+
+Directory structure
+-------------------
+.
+|-- tagger1.py  
+|-- pos/  
+|   |-- train  
+|   |-- dev  
+|   `-- test  
+`-- ner/  
+    |-- train  
+    |-- dev  
+    `-- test  
+|-- embeddings/  
+    |-- vocab.txt  
+    `-- wordVectors.txt  
+
+Arguments
+---------
+--task pos|ner        Task to run (“pos” or “ner”)  
+--part NAME           Identifier for part of the assignment (e.g. “3”)  
+--vec_path PATH       Pretrained vectors file (required)  
+--vocab_path PATH     Vocabulary file matching vectors (required)  
+[--output_test PATH]  Write test-set predictions to PATH (optional)  
+
+Usage
+-----
+Train with pretrained embeddings:
+  python tagger1.py --task ner --part 3 \
+    --vec_path embeddings/wordVectors.txt \
+    --vocab_path embeddings/vocab.txt
+
+Generate test-set predictions:
+  python tagger1.py --task ner --part 3 \
+    --vec_path embeddings/wordVectors.txt \
+    --vocab_path embeddings/vocab.txt \
+    --output_test test3.ner
+
+Outputs
+-------
+Graphs for validation set accuracy and loss are created and saved in figures/ dir
+Test predictions are writtten to:
+  <output_test> (if specified)  
+
+Determinism
+-----------
+Same as part 1
+
+Part 4: Affix-Based Window Tagger (tagger4.py)
+----------------------------------------------
+
+Description
+-----------
+In this part, we extend the window-based tagger to incorporate prefix and suffix (affix) features. Each word in the context window is represented by its word embedding and separate embeddings for its fixed-length prefix and suffix. The embeddings for word, prefix and suffix are summed and fed into an MLP, enabling the model to capture morphological patterns.
+
+Directory structure
+-------------------
+.
+|-- tagger3.py       # main script for Part 4
+|-- pos/             # part-of-speech data
+|   |-- train
+|   |-- dev
+|   `-- test
+|-- ner/             # named-entity-recognition data
+|   |-- train
+|   |-- dev
+|   `-- test
+|-- embeddings/      # (optional) pretrained vectors
+|   |-- vocab.txt
+|   `-- wordVectors.txt
+
+Arguments
+---------
+--task pos|ner         Task to run (“pos” or “ner”)
+[--vec_path PATH]      Path to pretrained vectors file (optional)
+[--vocab_path PATH]    Path to vocabulary file matching vectors (optional)
+[--output_test PATH]   Write test-set predictions to PATH (optional)
+
+Usage
+-----
+Train & evaluate on dev set (random embeddings):
+  python tagger3.py --task pos
+
+Train with pretrained embeddings:
+  python tagger3.py --task ner --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt
+
+Generate test-set predictions:
+  python tagger3.py --task pos --output_test test4.pos
+
+Hyperparameters
+---------------
+
+Outputs
+-------
+Graphs for validation set accuracy and loss are create and saved in figures/ dir
+
+Test predictions are writtten to:
+  <output_test> (if specified)
+
+Determinism
+-----------
+Same as part 1
