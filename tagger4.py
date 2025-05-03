@@ -7,14 +7,20 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
+import random
+import numpy as np
+from collections import defaultdict, Counter
 
 # ---------------- Hyperparameters & Constants ----------------
+TASK_HYPERPARAMS = {
+    "pos": {"learning_rate": 1e-3, "epochs": 3, "batch_size": 64},
+    "ner": {"learning_rate": 1e-3, "epochs": 7,  "batch_size": 64},
+}
+
 DEFAULT_EMBEDDING_DIM = 50
-HIDDEN_DIM = 256
+MASK_UNK_PROB = 0.15
+HIDDEN_DIM = 250
 CONTEXT_SIZE = 2
-LEARNING_RATE = 1e-3
-BATCH_SIZE = 32
-EPOCHS = 10
 PAD_TOKEN = "<PAD>"
 UNK_TOKEN = "<UNK>"
 WINDOW_SIZE = 2 * CONTEXT_SIZE + 1
@@ -25,7 +31,19 @@ CHAR_FILTERS = 30
 RAW_CHAR_LEN = 20
 MAX_CHAR_LEN = RAW_CHAR_LEN + 2 * CHAR_PAD
 FIG_DIR = "figures"
+SEED = 42
 
+
+random.seed(SEED)
+numpy_seed = SEED
+np.random.seed(numpy_seed)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+# Ensure deterministic behavior in cuDNN (may slow down training)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 def read_labeled_data(path):
     sentences = []
@@ -69,7 +87,7 @@ def read_unlabeled_data(path):
     return sentences
 
 
-def build_vocab(train_sentences, lowercase=False):
+def build_vocab(train_sentences, lowercase=True):
     freq = {}
     for words, _ in train_sentences:
         for w in words:
@@ -101,7 +119,7 @@ def build_tag_map(train_sentences):
     return tag2idx, idx2tag
 
 
-def vectorize_with_chars(sentences, word2idx, tag2idx=None, char2idx=None, lowercase=False, is_test=False):
+def vectorize_with_chars(sentences, word2idx, tag2idx=None, char2idx=None, lowercase=True, is_test=False):
     pad = CONTEXT_SIZE
     Xw, Xc, ys = [], [], []
     for sent in sentences:
@@ -142,7 +160,6 @@ def load_pretrained(vec_path, vocab_path, word2idx, lowercase=True):
     if len(vs)!=len(ls): raise ValueError("Mismatch lengths")
     dim=len(ls[0].split())
     M=torch.randn(len(word2idx),dim)*0.1
-    M[word2idx[PAD_TOKEN]].zero_()
     found=0
     for w,v in zip(vs,ls):
         wl=w.lower() if lowercase else w
@@ -183,25 +200,36 @@ class WindowTaggerCharCNN(nn.Module):
         h=self.act(self.fc1(x))
         return self.fc2(h)
 
-def run_epoch(model,loader,criterion,optimizer=None,task=None):
+def run_epoch(model,loader,criterion,unk_idx,optimizer=None,task=None):
     train=optimizer is not None
     if train: model.train()
     else:     model.eval()
     tot,cor,all=0.0,0,0
     ner_c,ner_t=0,0
+
     with torch.set_grad_enabled(train):
         for Xw, Xc, y in loader:
+
             Xw,Xc,y=Xw.to(device),Xc.to(device),y.to(device)
+
+            # mask 15% of words to learn representation to UNK token
+            if train:
+                mask = torch.rand_like(Xw, dtype=torch.float) < MASK_UNK_PROB
+                Xw = Xw.masked_fill(mask, unk_idx)
+
             out=model(Xw,Xc)
             loss=criterion(out,y)
+
             if train:
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
             preds=out.argmax(1)
             tot+=loss.item()*Xw.size(0)
             cor+= (preds==y).sum().item()
             all+= y.size(0)
+
             if task=="ner" and not train:
                 oi=tag2idx['O']
                 mask=(y!=oi)|(preds!=oi)
@@ -214,8 +242,8 @@ def run_epoch(model,loader,criterion,optimizer=None,task=None):
 def parse_args():
     p=argparse.ArgumentParser()
     p.add_argument("--task",choices=["pos","ner"],required=True)
-    p.add_argument("--vec_path")
-    p.add_argument("--vocab_path")
+    p.add_argument("--vec_path", required =True)
+    p.add_argument("--vocab_path", required=True)
     p.add_argument("--output_test")
     return p.parse_args()
 
@@ -226,13 +254,26 @@ def process_test_data(task,output_path,model,word2idx,tag2idx,idx2tag,char2idx):
         for sent in s:
             Xw,Xc=vectorize_with_chars([sent],word2idx,None,char2idx,True,True)
             Xw,Xc=Xw.to(device),Xc.to(device)
-            with torch.no_grad():out=model(Xw,Xc)
+            with torch.no_grad():
+                out=model(Xw,Xc)
             for w,i in zip(sent,out.argmax(1).cpu()): f.write(f"{w} {idx2tag[i]}\n")
             f.write("\n")
     print(f"Saved test to {output_path}")
 
 if __name__=="__main__":
+
+    global device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     args=parse_args()
+
+    params = TASK_HYPERPARAMS[args.task]
+
+    learning_rate = params["learning_rate"]
+    epochs        = params["epochs"]
+    batch_size    = params["batch_size"]
+
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train=read_labeled_data(f"{args.task}/train")
     dev=read_labeled_data(f"{args.task}/dev")
@@ -241,38 +282,118 @@ if __name__=="__main__":
     tag2idx,idx2t=build_tag_map(train)
     char2idx,idx2c=build_char_vocab(train)
 
-    if args.vec_path and args.vocab_path:
-        p_emb,embd=load_pretrained(args.vec_path,args.vocab_path,word2idx,True)
-    else: 
-        embd,p_emb=DEFAULT_EMBEDDING_DIM,None
+    pretrained_embd,embd_dim=load_pretrained(args.vec_path,args.vocab_path,word2idx,True)
 
     Xw_tr,Xc_tr,y_tr=vectorize_with_chars(train,word2idx,tag2idx,char2idx,True,False)
-    Xw_dev,Xc_dev,y_dev=vectorize_with_chars(dev,  word2idx,tag2idx,char2idx,True,False)
+    Xw_dev,Xc_dev,y_dev=vectorize_with_chars(dev,word2idx,tag2idx,char2idx,True,False)
 
+    tr_ld=DataLoader(TensorDataset(Xw_tr,Xc_tr,y_tr),batch_size=batch_size,shuffle=True)
+    dv_ld=DataLoader(TensorDataset(Xw_dev,Xc_dev,y_dev),batch_size=batch_size)
 
-    tr_ld=DataLoader(TensorDataset(Xw_tr,Xc_tr,y_tr),batch_size=BATCH_SIZE,shuffle=True)
-    dv_ld=DataLoader(TensorDataset(Xw_dev,Xc_dev,y_dev),batch_size=BATCH_SIZE)
+    model=WindowTaggerCharCNN(len(word2idx),embd_dim,len(char2idx),CHAR_DIM,CHAR_KERNEL_SIZE,CHAR_FILTERS,CONTEXT_SIZE,HIDDEN_DIM,len(tag2idx),pretrained_embd).to(device)
 
-    model=WindowTaggerCharCNN(len(word2idx),embd,len(char2idx),CHAR_DIM,CHAR_KERNEL_SIZE,CHAR_FILTERS,CONTEXT_SIZE,HIDDEN_DIM,len(tag2idx),p_emb).to(device)
-
-    crit=nn.CrossEntropyLoss();opt=optim.Adam(model.parameters(),lr=LEARNING_RATE)
+    crit=nn.CrossEntropyLoss()
+    opt=optim.Adam(model.parameters(),lr=learning_rate)
     os.makedirs(FIG_DIR,exist_ok=True)
 
-    for ep in range(1,EPOCHS+1):
-        tl,_=run_epoch(model,tr_ld,crit,opt,args.task)
-        vl,va=run_epoch(model,dv_ld,crit,None,args.task)
+    unk_idx = word2idx[UNK_TOKEN]
+
+    for ep in range(1,epochs+1):
+        tl,_=run_epoch(model,tr_ld,crit,unk_idx,opt,args.task)
+        vl,va=run_epoch(model,dv_ld,crit,unk_idx,None,args.task)
         print(f"Epoch {ep}|Train {tl:.3f}|DevLoss {vl:.3f}|DevAcc {va:.3f}")
 
     plt.figure()
-    plt.plot(range(1,EPOCHS+1),[run_epoch(model,dv_ld,crit,None,args.task)[1] for _ in range(EPOCHS)])
+    plt.plot(range(1,epochs+1),[run_epoch(model,dv_ld,crit,unk_idx,None,args.task)[1] for _ in range(epochs)])
     plt.xlabel("Epoch")
     plt.ylabel("DevAcc")
     plt.savefig(f"{FIG_DIR}/part4_{args.task}_dev_acc.png")
     plt.close()
     plt.figure()
-    plt.plot(range(1,EPOCHS+1),[run_epoch(model,dv_ld,crit,None,args.task)[0] for _ in range(EPOCHS)])
+    plt.plot(range(1,epochs+1),[run_epoch(model,dv_ld,crit,unk_idx,None,args.task)[0] for _ in range(epochs)])
     plt.xlabel("Epoch");plt.ylabel("DevLoss")
     plt.savefig(f"{FIG_DIR}/part4_{args.task}_dev_loss.png")
     plt.close()
     if args.output_test: 
         process_test_data(args.task,args.output_test,model,word2idx,tag2idx,idx2t,char2idx)
+
+    # # ─────────────────────────────────────────────────────────────────────────
+    # # 6) Filter-motif analysis on the dev set
+    # # ─────────────────────────────────────────────────────────────────────────
+
+    # # # 6.1) Reconstruct the exact same sliding windows of raw tokens:
+    # raw_windows = []
+    # for words, _ in train:
+    #     padded = [PAD_TOKEN]*CONTEXT_SIZE + words + [PAD_TOKEN]*CONTEXT_SIZE
+    #     for i in range(len(words)):
+    #         # this must match vectorize_with_chars’ window logic
+    #         window = padded[i : i + WINDOW_SIZE]
+    #         raw_windows.append(window)
+
+    # # sanity: number of windows == number of rows in Xw_tr
+    # assert len(raw_windows) == Xw_tr.size(0), \
+    #     f"Expected {Xw_tr.size(0)} windows, got {len(raw_windows)}"
+
+    # # 6.2) Hook into char_cnn and collect all conv outputs + raw tokens
+    # all_convs      = []   # will be list of (batch*W, F, L') tensors
+
+    # def save_activation(module, inp, out):
+    #     # out.shape == (batch*W, num_filters, conv_length)
+    #     all_convs.append(out.detach().cpu())
+
+    # hook = model.char_cnn.register_forward_hook(save_activation)
+    # model.eval()
+
+    # # iterate in the same batching you used before
+    # for start in range(0, Xw_tr.size(0), batch_size):
+    #     end = min(start + batch_size, Xw_tr.size(0))
+    #     xw_batch = Xw_tr[start:end].to(device)
+    #     xc_batch = Xc_tr[start:end].to(device)
+
+    #     # forward pass → populates all_convs
+    #     _ = model(xw_batch, xc_batch)
+
+    # hook.remove()
+
+    # conv_out   = torch.cat(all_convs, dim=0)   # (N, F, Lp)
+    # num_windows = Xw_tr.size(0)
+    # W            = WINDOW_SIZE
+    # Lp           = conv_out.size(2)
+    # F= CHAR_FILTERS
+
+    # # reshape into (num_windows, W, F, Lp) so we can pick the center
+    # conv4d      = conv_out.view(num_windows, W, F, Lp)
+
+    # # 6.4) Extract **only** the center‐token activations
+    # C           = CONTEXT_SIZE               # the “center” index
+    # center_out  = conv4d[:, C, :, :]         # (num_windows, F, Lp)
+    # flat_center = center_out.permute(1, 0, 2) \
+    #                         .reshape(F, -1)   # (F, num_windows * Lp)
+
+    # k = 50
+    # topk_vals, topk_idxs = flat_center.topk(k, dim=1)  
+    # example_idxs = topk_idxs // Lp    # (F, k)
+    # pos_idxs     = topk_idxs %  Lp    # (F, k)
+
+    # # 6.5) Recover substrings from the **center** char sequences
+    # #     Xc_tr: (num_windows, W, MAX_CHAR_LEN)
+    # char_seqs_center = Xc_tr[:, C, :].cpu().tolist()
+    # idx2char         = idx2c               # from build_char_vocab
+    # kernel_size      = model.char_cnn.kernel_size[0]
+
+    # filter_motifs = {}
+    # for f in range(F):
+    #     substrs = []
+    #     for i in range(k):
+    #         n   = example_idxs[f, i].item()
+    #         pos = pos_idxs[f, i].item()
+    #         seq = char_seqs_center[n]              # now truly the center token
+    #         chunk = seq[pos : pos + kernel_size]   # list of char-ids
+    #         chars = [ idx2char[cid] for cid in chunk ]
+    #         substrs.append(''.join(chars))
+    #     filter_motifs[f] = Counter(substrs).most_common(10)
+
+    # # Print results
+    # print("\n=== Filter-motifs (center-only, padded-char) on train set ===")
+    # for f, motifs in filter_motifs.items():
+    #     print(f"Filter {f:02d}: {motifs}")
