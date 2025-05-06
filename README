@@ -139,7 +139,7 @@ Train & evaluate on dev set (random embeddings):
   python tagger3.py --task pos
 
 Train with pretrained embeddings:
-  python tagger3.py --task ner --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt
+  python tagger3.py --task pos --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt
 
 Generate test-set predictions:
   python tagger3.py --task pos --output_test test4.pos
@@ -199,7 +199,7 @@ Train with pretrained embeddings:
   python tagger4.py --task ner --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt
 
 Generate test-set predictions:
-  python tagger4.py --task pos --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt --output_test test4.pos
+  python tagger4.py --task pos --vec_path embeddings/wordVectors.txt --vocab_path embeddings/vocab.txt --output_test test5.pos
 
 Hyperparameters
 ---------------
@@ -210,41 +210,3 @@ Graphs for validation set accuracy and loss are create and saved in figures/ dir
 
 Test predictions are writtten to:
   <output_test> path (if specified)
-
-
-Part 6: Character-level N-gram Language Model
----------------------------------------------
-
-Description
------------
-This part implements a character-level language model using an n-gram context window of length `k`.
-Given `k` characters, the model predicts the next character in sequence.
-It can be trained on English (`eng.txt`) or Hebrew (`heb.tgz`) corpora and supports sampling of generated text.
-
-Directory structure
--------------------
-.
-|-- tagger6.py
-|-- lm-data/eng-data/input.txt
-|-- lm-data/heb-data/*.txt
-|-- figures/           # loss graphs
-|-- samples/           # sampled texts during training
-
-Arguments
----------
---corpus PATH    Path to text file to train on
---k INT          Length of character context (default 10)
-
-Usage
------
-Train a character-level LM with k=10:
-  python tagger6.py --corpus lm-data/eng-data/input.txt --k 10
-
-Outputs
--------
-- Figures showing validation loss saved in `figures/part6_k10_loss.png`
-- Sampled texts of 100 characters after each epoch saved in `samples/sample_k10_ep*.txt`
-
-Determinism
------------
-Random seed 42 set for Python and PyTorch.

@@ -23,6 +23,7 @@ WINDOW_SIZE = 2 * CONTEXT_SIZE + 1
 FIG_DIR = "figures"
 SEED = 42
 MASK_UNK_PROB = 0.15
+
 TASK_HYPERPARAMS = {
     "pretrain": {"learning_rate": 1e-3, "epochs": 5, "batch_size": 64},
     "no_pretrain": {"learning_rate": 1e-3, "epochs": 15,  "batch_size": 64},
